@@ -18,7 +18,7 @@ def setup_client(user_id=None, domain_id=None, keypair=None, multiq=False):
     client.register_to_core()
     return client
 
-def make_transaction(user_id=None, domain_id=None, asset_group_id=None, keypair=None):
+def make_transaction(user_id=None, asset_group_id=None, keypair=None):
     txobj = bbclib.make_transaction(relation_num=1, witness=True)
     bbclib.add_relation_asset(txobj, relation_idx=0,
                             asset_group_id=asset_group_id, user_id=user_id,
@@ -48,12 +48,12 @@ def main():
     # register callback method
     client = setup_client(user_id=user_id, domain_id=domain_id, keypair=keypair, multiq=True)
     client.callback.proc_notify_inserted = proc_notify_inserted
-    query_id = client.request_insert_completion_notification(asset_group_id)
+    client.request_insert_completion_notification(asset_group_id)
 
     # register transaction to core node
     client = setup_client(user_id=user_id, domain_id=domain_id, keypair=keypair, multiq=True)
-    txobj = make_transaction(user_id=user_id, domain_id=domain_id, asset_group_id=asset_group_id, keypair=keypair)
-    response_data = register_txobj(txobj=txobj, client=client)
+    txobj = make_transaction(user_id=user_id, asset_group_id=asset_group_id, keypair=keypair)
+    register_txobj(txobj=txobj, client=client)
 
 if __name__ == "__main__":
     main()
