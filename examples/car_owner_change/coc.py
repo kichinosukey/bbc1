@@ -17,6 +17,8 @@ PUBLIC_KEY = '.public_key'
 domain_id = bbclib.get_new_id("car owner change domain", include_timestamp=False)
 asset_group_id = bbclib.get_new_id("car owner change asset group", include_timestamp=False)
 
+key_pair = None
+
 def setup_argparse():
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest='command_type', help='command')
@@ -34,6 +36,7 @@ def setup_argparse():
     # wait
     wait_parser = subparsers.add_parser('wait', help='Wait request')
     wait_parser.add_argument('-o', '--username', help='user name')
+    wait_parser.add_argument('-r', '--role', help='user name')
 
     return parser.parse_args()
 
@@ -42,12 +45,14 @@ def create_keypair():
         print("Keypair already exists.")
         return 0
     keypair = bbclib.KeyPair()
-    keypair.generate
+    keypair.generate()
     with open(PRIVATE_KEY, "wb") as fout:
         fout.write(keypair.private_key)
     with open(PUBLIC_KEY, "wb") as fout:
         fout.write(keypair.public_key)
     print("Keypair is created.")
+    print("private_key: %s" % binascii.b2a_hex(keypair.private_key).decode())
+    print("public_key: %s" % binascii.b2a_hex(keypair.public_key).decode())
 
 def load_keypair():
     if os.path.exists(PUBLIC_KEY) and os.path.exists(PRIVATE_KEY):
@@ -55,9 +60,10 @@ def load_keypair():
             private_key = fin.read()
         with open(PUBLIC_KEY, "rb") as fin:
             public_key = fin.read()
-        keypair = bbclib.KeyPair(privkey=private_key, pubkey=public_key)
         global key_pair
-        key_pair = keypair
+        key_pair = bbclib.KeyPair(privkey=private_key, pubkey=public_key)
+        print("*"*40)
+        print(binascii.b2a_hex(key_pair.public_key).decode())
     else:
         print("Keypair was not found.")
         sys.exit(0)
@@ -87,7 +93,7 @@ def apply_file(filename, user_id, old_owner_id, approver_id):
     # create transaction object
     txobj = bbclib.make_transaction(relation_num=1, witness=True)
     bbclib.add_relation_asset(txobj, relation_idx=0, asset_group_id=asset_group_id, 
-                            user_id=user_id, asset_body=b'Owner change')
+                            user_id=user_id, asset_body=b'Owner change', asset_file=file_data)
     txobj.witness.add_witness(user_id)
     txobj.witness.add_witness(old_owner_id)
     txobj.witness.add_witness(approver_id)
@@ -103,8 +109,10 @@ def apply_file(filename, user_id, old_owner_id, approver_id):
 
     sig = bbclib.BBcSignature()
     sig.unpack(response_data[KeyType.signature]) 
-
     txobj.witness.add_signature(user_id=response_data[KeyType.source_user_id], signature=sig)
+
+    print("*"*10)
+    print(txobj)
 
     # gather signature from approver
     query_id = client.gather_signatures(txobj, destinations=[approver_id], asset_files=asset_files)
@@ -117,10 +125,15 @@ def apply_file(filename, user_id, old_owner_id, approver_id):
     sig.unpack(response_data[KeyType.signature]) 
     txobj.witness.add_signature(user_id=response_data[KeyType.source_user_id], signature=sig)
 
+    # sign
+    sig = txobj.sign(private_key=key_pair.private_key, public_key=key_pair.public_key)
+    txobj.witness.add_signature(user_id=user_id, signature=sig)
+
     # insert transaction
     query_id = client.insert_transaction(txobj)
     assert query_id
 
+    print(txobj)
     print("Applicant is done.")
 
 def wait_request(user_id):
@@ -135,6 +148,31 @@ def wait_request(user_id):
 
     # Deserialize transaction data
     txobj, fmt_type = bbclib.deserialize(response_data[KeyType.transaction_data])
+
+    # Sign
+    sig = txobj.sign(keypair=key_pair)
+
+    # Sendback sign
+    query_id = client.sendback_signature(dest_user_id=response_data[KeyType.source_user_id], 
+                                    transaction_id=txobj.transaction_id,
+                                    signature=sig, query_id=query_id_sign_req)
+    assert query_id
+    print("Sendback signature.")
+
+def wait_request_as_approver(user_id):
+    client = setup_client(user_id)
+
+    # Synchronize to core node
+    response_data = client.callback.synchronize()
+    if response_data[KeyType.status] < ESUCCESS:
+        print("ERROR: ", response_data[KeyType.reason].decode())
+        assert False
+    query_id_sign_req = response_data[KeyType.query_id]
+
+    # Deserialize transaction data
+    txobj, fmt_type = bbclib.deserialize(response_data[KeyType.transaction_data])
+
+    # Verify sign
 
     # Sign
     sig = txobj.sign(keypair=key_pair)
@@ -164,4 +202,7 @@ if __name__ == "__main__":
             approver_id = bbclib.get_new_id(approver_name, include_timestamp=False)
             apply_file(args.applicant_file, user_id, old_owner_id, approver_id)
         elif args.command_type == 'wait':
-            wait_request(user_id) 
+            if args.role == 'approver':
+                wait_request_as_approver(user_id)
+            else:
+                wait_request(user_id)
