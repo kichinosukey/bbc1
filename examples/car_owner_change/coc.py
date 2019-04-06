@@ -17,8 +17,6 @@ PUBLIC_KEY = '.public_key'
 domain_id = bbclib.get_new_id("car owner change domain", include_timestamp=False)
 asset_group_id = bbclib.get_new_id("car owner change asset group", include_timestamp=False)
 
-key_pair = None
-
 def setup_argparse():
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest='command_type', help='command')
@@ -45,14 +43,12 @@ def create_keypair():
         print("Keypair already exists.")
         return 0
     keypair = bbclib.KeyPair()
-    keypair.generate()
+    keypair.generate
     with open(PRIVATE_KEY, "wb") as fout:
         fout.write(keypair.private_key)
     with open(PUBLIC_KEY, "wb") as fout:
         fout.write(keypair.public_key)
     print("Keypair is created.")
-    print("private_key: %s" % binascii.b2a_hex(keypair.private_key).decode())
-    print("public_key: %s" % binascii.b2a_hex(keypair.public_key).decode())
 
 def load_keypair():
     if os.path.exists(PUBLIC_KEY) and os.path.exists(PRIVATE_KEY):
@@ -60,6 +56,7 @@ def load_keypair():
             private_key = fin.read()
         with open(PUBLIC_KEY, "rb") as fin:
             public_key = fin.read()
+        keypair = bbclib.KeyPair(privkey=private_key, pubkey=public_key)
         global key_pair
         key_pair = bbclib.KeyPair(privkey=private_key, pubkey=public_key)
     else:
@@ -107,7 +104,6 @@ def apply_file(filename, user_id, old_owner_id, approver_id):
 
     sig = bbclib.BBcSignature()
     sig.unpack(response_data[KeyType.signature]) 
-    txobj.witness.add_signature(user_id=response_data[KeyType.source_user_id], signature=sig)
 
     # gather signature from approver
     query_id = client.gather_signatures(txobj, destinations=[approver_id], asset_files=asset_files)
@@ -120,15 +116,10 @@ def apply_file(filename, user_id, old_owner_id, approver_id):
     sig.unpack(response_data[KeyType.signature]) 
     txobj.witness.add_signature(user_id=response_data[KeyType.source_user_id], signature=sig)
 
-    # sign
-    sig = txobj.sign(private_key=key_pair.private_key, public_key=key_pair.public_key)
-    txobj.witness.add_signature(user_id=user_id, signature=sig)
-
     # insert transaction
     query_id = client.insert_transaction(txobj)
     assert query_id
 
-    print(txobj)
     print("Applicant is done.")
 
 def wait_request(user_id):
@@ -201,7 +192,4 @@ if __name__ == "__main__":
             approver_id = bbclib.get_new_id(approver_name, include_timestamp=False)
             apply_file(args.applicant_file, user_id, old_owner_id, approver_id)
         elif args.command_type == 'wait':
-            if args.role == 'approver':
-                wait_request_as_approver(user_id)
-            else:
-                wait_request(user_id)
+            wait_request(user_id) 
